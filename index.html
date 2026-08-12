@@ -270,10 +270,20 @@ body{
 .shine{
   position:absolute; top:0; left:-60%; width:45%; height:100%; z-index:3;
   background:linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,.75), rgba(255,255,255,0));
-  transform:skewX(-16deg); opacity:0;
+  transform:translate3d(0,0,0) skewX(-16deg); opacity:0;
 }
-.card.rising .shine{ animation:sweep 1.05s ease-out .12s; }
-@keyframes sweep{ 0%{left:-60%;opacity:0} 25%{opacity:.9} 100%{left:120%;opacity:0} }
+/* 这条掠光曾经动画的是 left。那是本页最贵的一笔：left 属于布局属性，
+   1.05s 里每一帧都要给卡背重新布局＋重绘，而它正好整段压在翻转最忙的那一段上。
+   更糟的是布局失效发生在 preserve-3d 子树里，会把 .card 的 3D 变换从合成器上拽下来——
+   所以桌面同样能看出卡顿。改成 translate3d 之后这条动画全程留在合成器上。
+   位移量：left 从 -60% 走到 120%，即卡片宽度的 180%；translateX 的百分比按元素自身宽
+   （45% 卡宽）算，故终点 = 180 / 45 = 400%。 */
+.card.rising .shine{ animation:sweep 1.05s ease-out .12s; will-change:transform, opacity; }
+@keyframes sweep{
+  0%  { transform:translate3d(0,0,0) skewX(-16deg);    opacity:0;  }
+  25% {                                                opacity:.9; }
+  100%{ transform:translate3d(400%,0,0) skewX(-16deg); opacity:0;  }
+}
 
 /* —— 卡面 —— */
 /* 卡面整套尺寸都从 --card-w 推出来，不按视口高度分档。
@@ -476,7 +486,10 @@ body{
           mask:radial-gradient(circle, transparent 30%, #000 42%, #000 60%, transparent 76%);
   opacity:0;
 }
-.corona.go{ animation:corona 1.45s cubic-bezier(.18,.72,.3,1); }
+/* 芒线在 800ms 起手，那时卡片还在转。will-change 让它整段留在自己的合成层上，
+   否则 scale(.42)→scale(1.16) 的过程中，这块 600px 见方的 conic-gradient＋mask
+   会被按新缩放反复重新栅格化，正好砸在翻转的后半程。 */
+.corona.go{ animation:corona 1.45s cubic-bezier(.18,.72,.3,1); will-change:transform, opacity; }
 @keyframes corona{
   0%  { transform:scale(.42) rotate(0deg);    opacity:0; }
   26% { opacity:.7; }
@@ -502,7 +515,11 @@ body{
   border:1.5px solid rgba(217,154,60,.55);
   box-shadow:0 0 20px rgba(232,180,100,.42), inset 0 0 14px rgba(255,232,196,.34);
   opacity:0; animation:ripple 4.2s cubic-bezier(.2,.66,.32,1) infinite;
+  will-change:transform, opacity;
 }
+/* 涟漪只是"邀请点击"，仪式一开始就淡出了，但 infinite 动画还在后台跑满 1.5s＋3s。
+   看不见的三层发光边框没有理由继续占合成预算——和背景色团一起冻住。 */
+.ripples:not(.on) i{ animation-play-state:paused; }
 .ripples i:nth-child(2){ animation-delay:1.4s; }
 .ripples i:nth-child(3){ animation-delay:2.8s; }
 @keyframes ripple{
@@ -512,17 +529,18 @@ body{
 }
 /* 点击瞬间往外炸开的一圈，给手指一个即时回应 */
 .burst{ border-radius:22px; border:1.5px solid rgba(196,64,44,.5); opacity:0; }
-.burst.go{ animation:burst .95s cubic-bezier(.16,.72,.29,1); }
+.burst.go{ animation:burst .95s cubic-bezier(.16,.72,.29,1); will-change:transform, opacity; }
 @keyframes burst{
   0%  { transform:scale(.97); opacity:.9; }
   100%{ transform:scale(1.52); opacity:0; }
 }
-.halo.on{ opacity:1; animation:pulse 1.5s ease-out; }
+.halo.on{ opacity:1; animation:pulse 1.5s ease-out; will-change:transform, opacity; }
 @keyframes pulse{ 0%{transform:scale(.82);opacity:0} 40%{opacity:1} 100%{transform:scale(1.14);opacity:.55} }
 .spark{
   position:absolute; border-radius:50%; pointer-events:none; z-index:9;
   background:radial-gradient(circle,#fff,rgba(255,206,140,.55) 55%,rgba(255,206,140,0) 72%);
   animation:sparkle 1.25s ease-out forwards;
+  will-change:transform, opacity;
 }
 @keyframes sparkle{
   0%{ transform:translate(0,0) scale(0); opacity:0 }
@@ -547,12 +565,15 @@ body{
 .btn:active{ transform:scale(.965); box-shadow:0 4px 11px rgba(180,110,55,.26), inset 0 1px 0 rgba(255,255,255,.26); }
 .btn:disabled{ cursor:default; filter:saturate(.5) brightness(1.04); box-shadow:0 4px 14px rgba(180,110,55,.18), inset 0 1px 0 rgba(255,255,255,.23); }
 .btn .label{ position:relative; z-index:2; display:inline-flex; align-items:center; gap:6px; }
+/* 同理，进度条也不能动画 width：那是 3s 的逐帧布局。改成 scaleX，
+   横向渐变被压扁的差别在这条半透明白光上肉眼看不出来。 */
 .btn .fill{
-  position:absolute; left:0; top:0; bottom:0; width:0; z-index:1;
+  position:absolute; left:0; top:0; bottom:0; width:100%; z-index:1;
+  transform:scaleX(0); transform-origin:left center;
   background:linear-gradient(90deg, rgba(255,255,255,.28), rgba(255,255,255,.14));
 }
-.btn .fill.run{ animation:fill 3s linear forwards; }
-@keyframes fill{ from{width:0} to{width:100%} }
+.btn .fill.run{ animation:fill 3s linear forwards; will-change:transform; }
+@keyframes fill{ from{transform:scaleX(0)} to{transform:scaleX(1)} }
 .count{ font-size:12.5px; letter-spacing:.16em; color:var(--ink-faint); min-height:17px; transition:opacity .4s ease; }
 /* 免责声明：必须一直在场，但不该是页面底部最响的一行。
    收窄到 300px 让它排成整齐的两三行，再压一档字号和透明度——
@@ -989,14 +1010,33 @@ function paint(idx){
   setText(els.desc, c.d);
   setText(els.tip, c.a);
   els.motto.textContent = th.sub;
-  // 角色图未到位时插画位留空但不塌陷：占位日轮撑住同样的盒子，
-  // 将来嵌入成品图不会引起版式位移。
-  els.ill.innerHTML = FIGS[idx]
-    ? '<img src="' + FIGS[idx] + '" alt="">'
-    : '<svg class="ill-ph" viewBox="0 0 40 56" aria-hidden="true">' +
+  setIll(FIGS[idx]);
+}
+
+/* 插画复用同一个 <img>，只换 src。
+   以前每抽一张都 innerHTML 重建一次 <img>：旧位图连同它的解码结果一起丢掉，
+   新元素还要重新附着、重新排版，这笔开销全落在起手那一帧上。
+   角色图未到位时退回占位日轮：撑住同样的盒子，版式不塌也不位移。 */
+let illImg = null;
+function setIll(src){
+  if (!src){
+    illImg = null;
+    els.ill.innerHTML =
+      '<svg class="ill-ph" viewBox="0 0 40 56" aria-hidden="true">' +
         '<circle cx="20" cy="30" r="11"/>' +
         '<path d="M20 11v5M20 44v5M1 30h5M34 30h5M7 17l3.4 3.4M29.6 39.6L33 43M33 17l-3.4 3.4M10.4 39.6L7 43"/>' +
       '</svg>';
+    return;
+  }
+  if (!illImg){
+    illImg = document.createElement('img');
+    illImg.alt = '';
+  }
+  if (illImg.parentNode !== els.ill){
+    els.ill.textContent = '';
+    els.ill.appendChild(illImg);
+  }
+  if (illImg.getAttribute('src') !== src) illImg.setAttribute('src', src);
 }
 
 /* 等当前插画解码完（老浏览器没有 decode() 就直接放行） */
@@ -1006,8 +1046,13 @@ function decodeReady(capMs){
   return Promise.race([ img.decode().catch(() => {}), sleep(capMs) ]);
 }
 
+/* 星屑在 800ms 起手——那时卡片还在转。所以这 16 个节点必须一次性插进去：
+   逐个 appendChild 是 16 次 DOM 变更、16 个独立清理定时器，全砸在同一帧上。
+   先在 DocumentFragment 里装配好（脱离文档，不触发排版），再一次挂载、一次清理。 */
 function sparkles(){
   const n = 16;
+  const frag = document.createDocumentFragment();
+  const made = [];
   for (let i = 0; i < n; i++){
     const s = document.createElement('div');
     s.className = 'spark';
@@ -1019,9 +1064,11 @@ function sparkles(){
     s.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
     s.style.setProperty('--dy', Math.sin(ang) * dist + 'px');
     s.style.animationDelay = (Math.random() * .22) + 's';
-    fx.appendChild(s);
-    setTimeout(() => s.remove(), 1600);
+    frag.appendChild(s);
+    made.push(s);
   }
+  fx.appendChild(frag);
+  setTimeout(() => { for (const s of made) s.remove(); }, 1600);
 }
 
 function buzz(ms){ if (navigator.vibrate) try { navigator.vibrate(ms); } catch(e){} }
@@ -1090,7 +1137,9 @@ async function draw(){
   stageInner.classList.add('away');   // 垫层先退场，再动卡片
   bgEl.classList.add('calm');         // 仪式期间暂停背景色团：blur 动画和翻牌抢的是同一份合成预算
   ripples.classList.remove('on');     // 邀请已被接受，涟漪退下
-  burstEl.classList.remove('go'); void burstEl.offsetWidth; burstEl.classList.add('go');
+  // 上一轮冷却结束时已经把 .go 摘掉了，所以这里直接加就会重播，
+  // 不需要 void offsetWidth —— 那是一次同步强制排版，能省则省。
+  burstEl.classList.add('go');
   audioWake();                        // 必须在用户手势里唤醒，iOS 才允许出声
   buzz(12);
 
@@ -1130,6 +1179,10 @@ async function draw(){
   // 先把插画解好码再起手：解码发生在主线程，落在翻转那 1.5s 里就是丢帧。
   // 200ms 封顶，解码失败或超时都照常走——绝不能让一张图把仪式卡死。
   await decodeReady(200);
+  // 趁还没起手，把新文案的排版就地量完。.f-title 用了 text-wrap:balance，
+  // 要多趟排版才定得下断点；不主动触发，这笔账会顺延到 rising 的第一帧上，
+  // 于是每次抽卡起手都稳定丢一帧。卡面此刻是 visibility:hidden，但排版照做。
+  void front.offsetHeight;
 
   card.style.transform = '';
   card.classList.add('rising');
@@ -1146,7 +1199,9 @@ async function draw(){
   buzz([8, 40, 16]);
   sfxChime();
   sparkles();
-  raysEl.classList.remove('go'); void raysEl.offsetWidth; raysEl.classList.add('go');
+  // 这一刻卡片正转到最快的那一段，绝不能在这里 void offsetWidth 强制同步排版。
+  // .go 在上一轮冷却结束时就摘掉了，中间隔了几百帧，直接加即可重播。
+  raysEl.classList.add('go');
   reveals.forEach(r => r.classList.add('on'));
   hasCard = true;
   drawn++;
@@ -1161,12 +1216,16 @@ async function draw(){
   card.classList.remove('rising');
 
   // —— 3 秒静置，之后才能抽下一张 ——
-  fill.classList.remove('run'); void fill.offsetWidth; fill.classList.add('run');
+  fill.classList.add('run');             // 上一轮结束时已 remove，无需强制回流重播
   for (let s = 3; s >= 1; s--){
     btnLabel.textContent = '读一读 · ' + s;   // 说明这 3 秒是干嘛的，而不是命令用户去做
     await sleep(1000);
   }
   fill.classList.remove('run');
+  // 一次性摘掉所有已播完的一次性动画类。放在冷却末尾而不是下一轮开头，
+  // 是为了让"移除"和"再添加"之间隔着几百帧，下一轮就不必再 void offsetWidth。
+  burstEl.classList.remove('go');
+  raysEl.classList.remove('go');
   bgEl.classList.remove('calm');         // 仪式结束，背景重新流动
   stageInner.classList.remove('away');   // 卡面已盖住牌堆，垫层可以悄悄归位
   ripples.classList.add('on');           // 静候下一次，涟漪重新荡开
